@@ -1,0 +1,14 @@
+{
+    "name": "Lifecycle.Demo",
+    "rootNamespace": "Lifecycle.Demo",
+    "references": ["Lifecycle.Core", "Lifecycle.Unity"],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

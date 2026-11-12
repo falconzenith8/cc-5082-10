@@ -1,0 +1,12 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!129 &1
+PlayerSettings:
+  m_ObjectHideFlags: 0
+  productGUID: 1a5153d6d2bd45a8b0e0a2c7301d3a60
+  companyName: LifecycleDemo
+  productName: SceneEntityLifecycle
+  defaultScreenWidth: 1280
+  defaultScreenHeight: 720
+  runInBackground: 1
+  activeInputHandler: 0
