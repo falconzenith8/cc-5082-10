@@ -121,7 +121,7 @@ namespace Lifecycle.Unity
             Go.transform.SetParent(Behaviour.PoolParent, true);
         }
 
-        protected override void OnBecameReady()
+        protected internal override void OnBecameReady()
         {
             if (Go != null) Go.SetActive(true);
         }

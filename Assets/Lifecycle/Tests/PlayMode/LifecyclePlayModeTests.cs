@@ -296,6 +296,58 @@ namespace Lifecycle.PlayModeTests
         }
 
         [UnityTest]
+        public IEnumerator ObjectReusePanelBorrowsReturnsAndSwitchesSceneVisibly()
+        {
+            var bootstrapObject = new GameObject("ReuseBootstrap");
+            var bootstrap = bootstrapObject.AddComponent<Lifecycle.Demo.DemoSceneBootstrap>();
+            yield return null; // Awake + Start build the world, pools and reuse panel.
+
+            var panel = Object.FindObjectOfType<Lifecycle.Demo.ObjectReusePanel>();
+            Assert.IsNotNull(panel, "the object-reuse panel is present in the running demo");
+
+            // Manual borrows through the operator surface.
+            panel.BorrowProp();
+            panel.BorrowProp();
+            Assert.AreEqual(2, panel.BorrowCount, "two manual borrows were issued");
+
+            // Let the async preparation finish on real frames.
+            var pumped = 0;
+            while (panel.ActiveEntityCount < 2 && pumped < 30)
+            {
+                yield return null;
+                pumped++;
+            }
+
+            var bootstrapManager = bootstrap.Manager;
+            var view = bootstrapManager.CreateReuseView();
+            Assert.AreEqual(2, view.ActiveEntities.Count, "two active entities are visible in the reuse view");
+            for (var i = 0; i < view.ActiveEntities.Count; i++)
+            {
+                Assert.AreEqual("Ready", view.ActiveEntities[i].State, "each active entity reports Ready");
+                Assert.IsTrue(view.ActiveEntities[i].ActivationComplete, "each active entity's async state is complete");
+            }
+
+            Assert.AreEqual(0, view.AsyncAnomalies.Count, "no async anomaly while both entities are healthy");
+            Assert.AreEqual(0, panel.AsyncAnomalyCount, "the panel agrees there are no anomalies");
+
+            // Switch scenes with the entities live: references must clear on both sides.
+            bootstrap.Manager.BeginTransition("ReuseNext", ClosePolicy.CancelOnClose);
+            yield return null;
+            Assert.IsNull(bootstrap.Manager.CurrentScope, "old scope reference cleared during transition");
+            Assert.AreEqual(0, bootstrap.Manager.Ledger.ActiveCount, "ledger emptied on scene switch");
+            Assert.AreEqual(0, InputRouter.TotalBindings, "no input bindings remain after the switch");
+            Assert.AreEqual(0, RuleBus.TotalListeners, "no rule listeners remain after the switch");
+
+            bootstrap.Manager.ActivateScope("ReuseNext");
+            bootstrap.Manager.EndTransition();
+            var after = bootstrap.Manager.CreateReuseView();
+            Assert.AreEqual(0, after.ActiveEntities.Count, "no active entities carried into the new scene");
+            Assert.AreEqual(0, after.AsyncAnomalies.Count, "no async anomaly in the new scene");
+
+            Object.Destroy(bootstrapObject);
+        }
+
+        [UnityTest]
         public IEnumerator DestroyedGameObjectIsEvictedRatherThanReused()
         {
             var ticket = _manager.Request(SpawnRequest.Prop("pickup-1"));

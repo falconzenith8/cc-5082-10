@@ -13,6 +13,7 @@ namespace Lifecycle.Demo
         private DemoSceneBootstrap _bootstrap;
         private GUIStyle _style;
         private GUIStyle _headerStyle;
+        private GUIStyle _reuseAnomalyStyle;
         private readonly List<string> _rendered = new List<string>();
 
         public void Bind(DemoSceneBootstrap bootstrap) => _bootstrap = bootstrap;
@@ -25,6 +26,7 @@ namespace Lifecycle.Demo
 
             var snapshot = manager.CreateSnapshot();
             _snapshot = snapshot;
+            _manager = manager;
             _sceneName = sceneName;
             _issues = reporter != null ? reporter.Count : 0;
             _presenter = presenter;
@@ -32,6 +34,7 @@ namespace Lifecycle.Demo
         }
 
         private LifecycleSnapshot _snapshot;
+        private LifecycleManager _manager;
         private string _sceneName = "-";
         private int _issues;
         private DemoPresenter _presenter;
@@ -47,6 +50,8 @@ namespace Lifecycle.Demo
                 _style = new GUIStyle(GUI.skin.label) { fontSize = 12, richText = true };
                 _style.normal.textColor = Color.white;
                 _headerStyle = new GUIStyle(_style) { fontStyle = FontStyle.Bold, fontSize = 13 };
+                _reuseAnomalyStyle = new GUIStyle(_style);
+                _reuseAnomalyStyle.normal.textColor = new Color(1f, 0.45f, 0.45f);
             }
 
             var width = 430f;
@@ -75,6 +80,11 @@ namespace Lifecycle.Demo
                             " issues=" + _issues, _style);
             GUILayout.Label("engine bindings: inputRouter=" + Lifecycle.Unity.InputRouter.TotalBindings +
                             " ruleBus=" + Lifecycle.Unity.RuleBus.TotalListeners, _style);
+            var reuse = _manager.CreateReuseView();
+            var reuseLine = "object reuse: active=" + reuse.ActiveEntities.Count +
+                            " asyncAnomalies=" + reuse.AsyncAnomalies.Count +
+                            " pendingWork=" + reuse.PendingWorkItems;
+            GUILayout.Label(reuseLine, reuse.HasAnomalies ? _reuseAnomalyStyle : _style);
             GUILayout.Space(4f);
             GUILayout.Label("last events:", _headerStyle);
             for (var i = _demoLog.Count - 1; i >= 0 && i >= _demoLog.Count - 8; i--)

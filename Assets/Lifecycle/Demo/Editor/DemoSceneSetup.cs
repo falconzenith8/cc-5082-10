@@ -25,6 +25,28 @@ namespace Lifecycle.DemoEditor
         [MenuItem("Lifecycle/Open Demo Scene")]
         public static void OpenDemoScene()
         {
+            OpenAndPlay();
+        }
+
+        /// <summary>
+        /// Graphical entry point for the object-reuse sample. Opens the demo scene with the
+        /// reuse panel visible, so the reuse regression can be exercised by hand (borrow, return,
+        /// transition) and inspected on screen.
+        /// </summary>
+        [MenuItem("Lifecycle/Open Object Reuse Sample")]
+        public static void OpenObjectReuseSample()
+        {
+            OpenAndPlay();
+            var bootstrap = Object.FindObjectOfType<DemoSceneBootstrap>();
+            if (bootstrap != null)
+            {
+                bootstrap.ShowReusePanel = true;
+                Debug.Log("[LifecycleDemo] Object Reuse panel enabled (key O toggles).");
+            }
+        }
+
+        private static void OpenAndPlay()
+        {
             var active = SceneManager.GetActiveScene();
             if (active.IsValid() && Object.FindObjectOfType<DemoSceneBootstrap>() != null)
             {
@@ -44,11 +66,35 @@ namespace Lifecycle.DemoEditor
         private static void EnsureSceneReady()
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+
+            // A scene file existing on disk is not enough: a batch run can start from a clean
+            // checkout whose Assets/Scenes folder was never generated, or from a stale scene that
+            // predates the bootstrap component. Verify the bootstrap actually exists before
+            // trusting the saved asset, and regenerate it if not.
             var mainScene = EditorBuildSettings.scenes.Length > 0 ? EditorBuildSettings.scenes[0].path : null;
-            if (!string.IsNullOrEmpty(mainScene) && System.IO.File.Exists(mainScene)) return;
+            var sceneHasBootstrap = string.IsNullOrEmpty(mainScene) || !System.IO.File.Exists(mainScene)
+                ? false
+                : SceneContainsBootstrap(mainScene);
+            if (sceneHasBootstrap) return;
 
             if (Object.FindObjectOfType<DemoSceneBootstrap>() != null) return;
             CreateBootstrapScene();
+        }
+
+        private static bool SceneContainsBootstrap(string scenePath)
+        {
+            // Loading the scene to inspect it would mutate the editor's loaded assets, which is
+            // exactly what a clean batch run must avoid. Reading the serialized scene text is
+            // enough to know whether the bootstrap component type is present.
+            try
+            {
+                return System.IO.File.ReadAllText(scenePath)
+                    .Contains("DemoSceneBootstrap");
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static void CreateBootstrapScene()

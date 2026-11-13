@@ -38,6 +38,7 @@ namespace Lifecycle.Demo
         private GameObject _character;
         private GameObject _hud;
         private bool _showHud = true;
+        private bool _showReusePanel = true;
         private int _rulePressCount;
         private string _currentSceneName = "Courtyard";
         private string _lastSpawnLabel = "-";
@@ -73,7 +74,8 @@ namespace Lifecycle.Demo
             _manager.EndTransition();
 
             BuildHud();
-            Log("ready: 1 pickup / 2 attachment / 3 machine; U input; R rules; G fail next; C return; T/X/V transition");
+            BuildReusePanel();
+            Log("ready: 1 pickup / 2 attachment / 3 machine; U input; R rules; G fail next; C return; T/X/V transition; O reuse panel");
         }
 
         private void Update()
@@ -84,6 +86,7 @@ namespace Lifecycle.Demo
             HandleInput();
             SyncCharacterAttachment();
             UpdateHud();
+            UpdateReusePanel();
         }
 
         private void HandleInput()
@@ -104,6 +107,7 @@ namespace Lifecycle.Demo
             if (Input.GetKeyDown(KeyCode.X)) Transition("Rooftop", ClosePolicy.CancelOnClose);
             if (Input.GetKeyDown(KeyCode.V)) Transition("Cellar", ClosePolicy.RejectWhenClosed);
             if (Input.GetKeyDown(KeyCode.H)) _showHud = !_showHud;
+            if (Input.GetKeyDown(KeyCode.O)) _showReusePanel = !_showReusePanel;
         }
 
         public void SpawnPickup() => Spawn(EntityKind.Prop, "pickup");
@@ -293,6 +297,27 @@ namespace Lifecycle.Demo
             var hud = _hud.GetComponent<DemoHud>();
             if (hud != null) hud.Refresh(_manager, _presenter, _reporter, _currentSceneName, _showHud, _log);
         }
+
+        private void BuildReusePanel()
+        {
+            _reusePanelObject = new GameObject("DemoReusePanel");
+            _reusePanel = _reusePanelObject.AddComponent<ObjectReusePanel>();
+        }
+
+        private void UpdateReusePanel()
+        {
+            if (_reusePanel == null || _manager == null) return;
+            _reusePanel.Refresh(_manager, _showReusePanel);
+        }
+
+        public bool ShowReusePanel
+        {
+            get => _showReusePanel;
+            set => _showReusePanel = value;
+        }
+
+        private ObjectReusePanel _reusePanel;
+        private GameObject _reusePanelObject;
 
         public void Log(string line)
         {

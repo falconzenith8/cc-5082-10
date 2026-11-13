@@ -10,7 +10,15 @@ namespace Lifecycle.CoreTests
             // The harness is single-threaded by design (Unity main thread semantics), but tests
             // run in a fresh harness per case.
 
-            // --- fast borrow/return ---
+            // Command-line mode: only assists object reuse; it never replaces the graphical entry.
+            if (args.Length >= 2 && args[0] == "run" && args[1] == "object-reuse")
+            {
+                Environment.SetEnvironmentVariable("LIFECYCLE_CLI_ARGS", string.Join("\u001f", args));
+                return Lifecycle.CoreTests.Cli.ReuseCli.Run(args);
+            }
+
+            /* core-cases */
+
             TestRunner.Test("fast borrow/return reuses one instance with fresh generations", () =>
             {
                 var h = new Harness();
@@ -478,7 +486,43 @@ namespace Lifecycle.CoreTests
                 Assert.Equal(0, after.LeasesHeld, "lease book clear");
             });
 
-            return TestRunner.Run(args.Length > 0 ? args[0] : null);
+            string filter = null;
+            string category = null;
+            foreach (var arg in args)
+            {
+                if (arg.StartsWith("--category=", StringComparison.Ordinal))
+                {
+                    category = arg.Substring("--category=".Length);
+                }
+                else if (arg.StartsWith("--filter=", StringComparison.Ordinal))
+                {
+                    filter = arg.Substring("--filter=".Length);
+                }
+                else if (!arg.StartsWith("--", StringComparison.Ordinal))
+                {
+                    filter = arg;
+                }
+            }
+
+            return RunTests(filter, category);
+        }
+
+        /// <summary>
+        /// Registers and runs the suite. Exposed so the object-reuse CLI runs the same tests as the
+        /// batch entry point instead of maintaining a second list.
+        /// </summary>
+        public static int RunTests(string filter, string category)
+        {
+            ReuseTests.Register();
+
+            // The source-mutation demo recompiles and reruns this suite in a subprocess. That
+            // nested run must not recursively invoke the demo again.
+            if (Environment.GetEnvironmentVariable("LIFECYCLE_SKIP_MUTATION_DEMO") == "1")
+            {
+                TestRunner.Skip("removing one generation validation from a copy of the source must fail the reuse suite");
+            }
+
+            return TestRunner.Run(filter, category);
         }
     }
 }

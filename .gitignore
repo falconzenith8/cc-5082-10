@@ -3,6 +3,8 @@ node_modules/
 vendor/
 dist/
 build/
+bin/
+obj/
 .next/
 .nuxt/
 .output/

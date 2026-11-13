@@ -203,6 +203,7 @@ namespace Lifecycle.Core
         public int ActiveTemporaryResources;
         public int ActiveAsyncTasks;
         public int LeasesHeld;
+        public int PendingWorkItems;
         public int StaleCallbacks;
         public int LeaksReportedAtClose;
 
@@ -217,7 +218,7 @@ namespace Lifecycle.Core
             " failed=" + FailedRequests + " canceled=" + CanceledRequests + " deferred=" + DeferredRequests +
             " subs=" + ActiveSubscriptionsTotal + "(input=" + ActiveInputSubscriptions +
             ", rules=" + ActiveRuleSubscriptions + ", res=" + ActiveTemporaryResources +
-            ", async=" + ActiveAsyncTasks + ") leases=" + LeasesHeld + " stale=" + StaleCallbacks +
-            " leaksAtClose=" + LeaksReportedAtClose;
+            ", async=" + ActiveAsyncTasks + ") leases=" + LeasesHeld + " pendingWork=" + PendingWorkItems +
+            " stale=" + StaleCallbacks + " leaksAtClose=" + LeaksReportedAtClose;
     }
 }

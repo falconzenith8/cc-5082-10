@@ -429,6 +429,23 @@ namespace Lifecycle.Core
         }
 
         /// <summary>
+        /// Generation-first validity check for a lease: true only while the slot still carries
+        /// exactly the generation this lease was issued for. Unlike <see cref="IsCurrent"/>, it
+        /// does not rely on lease-id identity (which already separates generations), so it is the
+        /// direct proof that a callback cannot act on a slot lent to a newer borrow. The fault-
+        /// injection scenario uses it to demonstrate that this single comparison is load-bearing.
+        /// </summary>
+        public bool IsGenerationCurrent(Lease lease)
+        {
+            if (!lease.IsAssigned || lease.Binder != this || !lease.Generation.IsValid) return false;
+            if (!_leaseBook.TryGetValue(lease.LeaseId, out var record)) return false;
+            var slot = record.Slot;
+            return record.Returned == false &&
+                   record.ScopeId == lease.ScopeId &&
+                   slot.Generation == lease.Generation;
+        }
+
+        /// <summary>
         /// Guard for callbacks scheduled by a lease: returns true only if the generation is still
         /// current. False results are reported as stale callbacks so they stay visible.
         /// </summary>
@@ -513,6 +530,16 @@ namespace Lifecycle.Core
 
                     Notify(o => o.OnRequestFailed(record.Ticket));
                 }
+            }
+            else if (record.Ticket != null && record.Ticket.Status == RequestStatus.Granted)
+            {
+                // A normal return owns its lease, so it owns the preparation too: dropping the
+                // pending work without settling the ticket would leave it "GrantedAwaitingReady"
+                // forever. The explicit return is the terminal canceled outcome for that request.
+                RemovePendingWork(record.LeaseId);
+                record.Ticket.Cancel(RequestFailureKind.CanceledByCaller,
+                    "Returned by the caller before preparation finished.", _clock.Now);
+                Notify(o => o.OnRequestFailed(record.Ticket));
             }
 
             return true;
@@ -648,6 +675,135 @@ namespace Lifecycle.Core
 
         public IReadOnlyList<SpawnTicket> DeferredTickets => _deferred;
 
+        /// <summary>
+        /// Read-only monitor view: every live entity with its generation and async state, plus a
+        /// focused anomaly list. Reuse problems surface next to the entity, not as bare counters.
+        /// </summary>
+        public ReuseView CreateReuseView()
+        {
+            var view = new ReuseView
+            {
+                ScopeId = _current?.ScopeId,
+                InTransition = _inTransition,
+                Tick = _clock.Now,
+                StaleCallbacks = _staleCallbacks,
+                LeasesHeld = _leaseBook.Count,
+                PendingWorkItems = _pendingWork.Count,
+                ActiveSubscriptions = _ledger.ActiveCount
+            };
+
+            foreach (var record in _leaseBook.Values)
+            {
+                var slot = record.Slot;
+                var entity = slot as IPooledEntity;
+                var entityView = new ReuseEntityView
+                {
+                    EntityId = record.EntityId,
+                    PoolId = record.PoolKey,
+                    LeaseGeneration = record.Lease.IsAssigned ? record.Lease.Generation.Value : 0,
+                    SlotGeneration = slot.Generation.Value,
+                    State = slot.State.ToString(),
+                    ActivationComplete = entity == null || entity.IsActivationComplete,
+                    PreparationPending = entity != null && !entity.IsActivationComplete,
+                    HasPendingWork = HasPendingWorkFor(record.LeaseId),
+                    AgeTicks = _clock.Now - (record.Lease.IsAssigned ? record.Lease.LeasedAtTick : _clock.Now)
+                };
+
+                if (entityView.LeaseGeneration != entityView.SlotGeneration)
+                {
+                    entityView.Anomaly = true;
+                    entityView.AnomalyReason = "lease gen " + entityView.LeaseGeneration +
+                                               " but slot is " + entityView.SlotGeneration;
+                }
+                else
+                {
+                    var leaseIsCurrent = record.Lease.IsAssigned && IsCurrent(record.Lease);
+                    if (slot.State == ActivationState.Ready && entityView.PreparationPending)
+                    {
+                        entityView.Anomaly = true;
+                        entityView.AnomalyReason = "Ready but async preparation still pending";
+                    }
+                    else if (slot.State == ActivationState.Preparing && entityView.ActivationComplete)
+                    {
+                        entityView.Anomaly = true;
+                        entityView.AnomalyReason = "async complete but slot still Preparing (pump has not applied it)";
+                    }
+                    else if (!leaseIsCurrent && !entityView.HasPendingWork)
+                    {
+                        entityView.Anomaly = true;
+                        entityView.AnomalyReason = "tracked lease is not live and has no pending work";
+                    }
+                }
+
+                view.ActiveEntities.Add(entityView);
+                if (entityView.Anomaly)
+                {
+                    view.AsyncAnomalies.Add(entityView.EntityId + " (" + entityView.State + "): " +
+                                            entityView.AnomalyReason);
+                }
+            }
+
+            foreach (var work in _pendingWork)
+            {
+                var record = work.Record;
+                var slot = record.Slot;
+                var entity = slot as IPooledEntity;
+                if (!_leaseBook.TryGetValue(record.LeaseId, out var live) || live != record)
+                {
+                    view.AsyncAnomalies.Add(record.EntityId + " (" + slot.State + "): pending work for an untracked lease");
+                }
+                else if (!IsCurrent(record.Lease))
+                {
+                    view.AsyncAnomalies.Add(record.EntityId + " (" + slot.State + "): pending work for a non-current lease");
+                }
+                else if (entity == null)
+                {
+                    view.AsyncAnomalies.Add(record.EntityId + " (" + slot.State + "): pending work on a non-async slot");
+                }
+            }
+
+            return view;
+        }
+
+        private bool HasPendingWorkFor(long leaseId)
+        {
+            for (var i = 0; i < _pendingWork.Count; i++)
+            {
+                if (_pendingWork[i].Record.LeaseId == leaseId) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>Finds a ticket by request id for observers that only kept the id (CLI, HUD).</summary>
+        public bool TryGetTicket(long requestId, out SpawnTicket ticket)
+        {
+            for (var i = 0; i < _tickets.Count; i++)
+            {
+                if (_tickets[i].RequestId == requestId)
+                {
+                    ticket = _tickets[i];
+                    return true;
+                }
+            }
+
+            ticket = null;
+            return false;
+        }
+
+        /// <summary>Issues a manual borrow from an operator surface. Returns null when refused.</summary>
+        public SpawnTicket Borrow(EntityKind kind, string entityId, string purpose = null)
+        {
+            ThrowIfDisposed();
+            return Request(new SpawnRequest(kind, entityId, purpose));
+        }
+
+        /// <summary>Returns a live ticket by id. Reports duplicates/stale releases like <see cref="Return"/>.</summary>
+        public bool ReturnById(long requestId)
+        {
+            return TryGetTicket(requestId, out var ticket) && Return(ticket);
+        }
+
         #endregion
 
         #region Snapshots and teardown
@@ -663,6 +819,7 @@ namespace Lifecycle.Core
                 ActiveTemporaryResources = _ledger.ActiveCountOf(SubscriptionKind.TemporaryResource),
                 ActiveAsyncTasks = _ledger.ActiveCountOf(SubscriptionKind.AsyncTask),
                 LeasesHeld = _leaseBook.Count,
+                PendingWorkItems = _pendingWork.Count,
                 StaleCallbacks = _staleCallbacks,
                 LeaksReportedAtClose = _leaksAtClose,
                 DeferredRequests = _deferred.Count
